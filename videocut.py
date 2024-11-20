@@ -5,6 +5,7 @@ from dateutil import parser
 import pytz
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import subprocess
 
 class VideoCutterUI:
     def __init__(self):
@@ -69,6 +70,16 @@ class VideoCutterUI:
         )
         self.start_btn.pack(pady=20)
 
+        # 合并视频按钮
+        self.merge_btn = tk.Button(
+            self.window,
+            text="合并视频",
+            command=self.merge_videos,
+            width=20,
+            height=2
+        )
+        self.merge_btn.pack(pady=20)
+
         # 进度条
         self.progress_bar = ttk.Progressbar(
             self.window,
@@ -85,6 +96,48 @@ class VideoCutterUI:
         # 状态标签
         self.status_label = tk.Label(self.window, text="")
         self.status_label.pack(pady=10)
+
+    def merge_videos(self):
+        try:
+            # 获取当前目录下及所有子目录下的所有以cut开头的mp4文件
+            cut_files = [os.path.join(root, f) for root, _, files in os.walk(self.output_dir) for f in files if f.startswith('cut') and f.endswith('.mp4')]
+
+            if not cut_files:
+                messagebox.showinfo("提示", "没有找到需要合并的视频文件")
+                return
+
+            # 按文件名排序
+            cut_files.sort()
+
+            # 生成输出文件名（当前日期+mergeFile.mp4）
+            current_date = datetime.now().strftime('%Y%m%d')
+            output_file = os.path.join(self.output_dir, f'{current_date}_mergeFile.mp4')
+
+            # 创建临时文件列表
+            list_file = os.path.join(self.output_dir, 'file_list.txt')
+            with open(list_file, 'w', encoding='utf-8') as f:
+                for video in cut_files:
+                    f.write(f"file '{os.path.join(self.output_dir, video)}'\n")
+
+            # 使用ffmpeg合并视频
+            merge_command = [
+                'ffmpeg',
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', list_file,
+                '-c', 'copy',
+                output_file
+            ]
+
+            subprocess.run(merge_command, check=True)
+
+            # 删除临时文件
+            os.remove(list_file)
+
+            messagebox.showinfo("完成", f"视频合并完成!\n输出文件: {output_file}")
+
+        except Exception as e:
+            messagebox.showerror("错误", f"合并视频时出错: {str(e)}")
 
     def select_video(self):
         filetypes = [("视频文件", "*.mp4;*.MP4")]
