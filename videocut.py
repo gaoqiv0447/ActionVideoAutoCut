@@ -12,7 +12,7 @@ class VideoCutterUI:
         self.window.title("视频裁剪工具")
         self.window.geometry("800x600")
 
-        self.video_path = None
+        self.video_paths = []  # 改为列表存储多个视频路径
         self.timestamp_path = None
         self.output_dir = None
 
@@ -88,9 +88,11 @@ class VideoCutterUI:
 
     def select_video(self):
         filetypes = [("视频文件", "*.mp4;*.MP4")]
-        self.video_path = filedialog.askopenfilename(filetypes=filetypes)
-        if self.video_path:
-            self.video_label.config(text=f"已选择视频: {os.path.basename(self.video_path)}")
+        self.video_paths = list(filedialog.askopenfilenames(filetypes=filetypes))  # 使用askopenfilenames允许多选
+        if self.video_paths:
+            # 显示选中的视频数量和名称
+            video_names = [os.path.basename(path) for path in self.video_paths]
+            self.video_label.config(text=f"已选择{len(self.video_paths)}个视频:\n" + "\n".join(video_names))
             self.check_start_button()
 
     def select_timestamp(self):
@@ -107,7 +109,7 @@ class VideoCutterUI:
             self.check_start_button()
 
     def check_start_button(self):
-        if self.video_path and self.timestamp_path and self.output_dir:
+        if self.video_paths and self.timestamp_path and self.output_dir:
             self.start_btn.config(state=tk.NORMAL)
         else:
             self.start_btn.config(state=tk.DISABLED)
@@ -122,37 +124,50 @@ class VideoCutterUI:
             timestamp_list = handle_time_stamp(timestamp_list)
             print(timestamp_list)
 
-            # 获取视频的开始和结束时间
-            start_time, end_time = get_video_start_end_time(self.video_path)
-
-            self.status_label.config(text=f"视频开始时间: {start_time}\n视频结束时间: {end_time}")
+            # 计算总处理数量（视频数量 × 时间戳数量）
+            total_tasks = len(self.video_paths) * len(timestamp_list)
+            processed_count = 0
 
             # 重置进度条
             self.progress_bar["value"] = 0
-            total_timestamps = len(timestamp_list)
-            processed_count = 0
 
-            # 遍历时间戳列表, 检查哪些在视频时间范围内
-            for ts in timestamp_list:
-                tz_cn = pytz.timezone('Asia/Shanghai')
-                ts = tz_cn.localize(ts)
+            # 遍历每个视频文件
+            for video_path in self.video_paths:
+                try:
+                    # 获取当前视频的开始和结束时间
+                    start_time, end_time = get_video_start_end_time(video_path)
+                    video_name = os.path.basename(video_path)
+                    self.status_label.config(text=f"正在处理: {video_name}\n开始时间: {start_time}\n结束时间: {end_time}")
 
-                if is_within_time_range(ts, start_time, end_time):
-                    start, end = time_point_to_start_end(ts, start_time)
-                    output_filename = f"cut_{ts.strftime('%Y%m%d_%H%M%S')}.mp4"
-                    output_path = os.path.join(self.output_dir, output_filename)
+                    # 为每个视频创建单独的输出子目录
+                    video_output_dir = os.path.join(self.output_dir, os.path.splitext(video_name)[0])
+                    os.makedirs(video_output_dir, exist_ok=True)
 
-                    # 调用切割函数
-                    cut_video(self.video_path, output_path, start, end)
+                    # 遍历时间戳列表, 检查哪些在视频时间范围内
+                    for ts in timestamp_list:
+                        tz_cn = pytz.timezone('Asia/Shanghai')
+                        ts = tz_cn.localize(ts)
 
-                # 更新进度
-                processed_count += 1
-                progress = (processed_count / total_timestamps) * 100
-                self.progress_bar["value"] = progress
-                self.progress_label.config(text=f"处理进度: {processed_count}/{total_timestamps}")
-                self.window.update()
+                        if is_within_time_range(ts, start_time, end_time):
+                            start, end = time_point_to_start_end(ts, start_time)
+                            output_filename = f"cut_{ts.strftime('%Y%m%d_%H%M%S')}.mp4"
+                            output_path = os.path.join(video_output_dir, output_filename)
 
-            messagebox.showinfo("完成", "视频裁剪完成!")
+                            # 调用切割函数
+                            cut_video(video_path, output_path, start, end)
+
+                        # 更新进度
+                        processed_count += 1
+                        progress = (processed_count / total_tasks) * 100
+                        self.progress_bar["value"] = progress
+                        self.progress_label.config(text=f"总进度: {processed_count}/{total_tasks}")
+                        self.window.update()
+
+                except Exception as e:
+                    print(f"处理视频 {video_name} 时出错: {str(e)}")
+                    continue
+
+            messagebox.showinfo("完成", "所有视频裁剪完成!")
             self.progress_label.config(text="裁剪完成!")
 
         except Exception as e:
